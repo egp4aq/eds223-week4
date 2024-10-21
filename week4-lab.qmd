@@ -1,0 +1,225 @@
+---
+title: "EDS 223: Week 4"
+format: html
+editor_options: 
+  chunk_output_type: console
+warnings: FALSE
+messages: FALSE
+---
+
+```{r}
+# Load in packages
+library(geodata)
+library(terra)
+library(tidyverse)
+library(tmap)
+library(kableExtra)
+library(spData)
+library(spDataLarge)
+```
+
+```{r}
+zion_elevation <- rast(system.file("raster/srtm.tif", package = "spDataLarge"))
+
+zion_land <- rast(system.file("raster/nlcd.tif", package = "spDataLarge"))
+```
+
+```{r}
+tm_shape(zion_elevation) +
+  tm_raster(title = "Elevation (m)")
+
+tm_shape(zion_land) +
+  tm_raster(title = "Land cover")
+```
+
+```{r}
+# raster with multiple layers
+landsat <- rast(system.file("raster/landsat.tif", package = "spDataLarge"))
+```
+
+```{r}
+tm_shape(landsat) +
+  tm_raster()
+```
+
+```{r}
+# Subset multi-layer data --> we can either do this by layer number or name
+landsat3 <- subset(landsat, 3)
+# landsat3 <- subset(landsat, "landsat_3")
+```
+
+```{r}
+tm_shape(landsat3) +
+  tm_raster()
+```
+
+```{r}
+# Perform global statistics on rasters 
+# ex. find mean of whole raster
+global(zion_elevation, mean)
+freq(zion_land) # tells us how many cells there are in each category
+```
+
+## Indexing
+
+```{r}
+# Use bracket indexing
+zion_elevation[1, 1]
+
+# Use cell number
+zion_elevation[1]
+
+landsat[1]
+
+# When using the cell number, on single layer it gives us just one number, but on 
+# multi-layer it gives us multiple numbers becasue it gives us the value in each layer (here there are 4)
+
+# Reassign values
+zion_elevation[1, 1] <- 0
+zion_elevation[1]
+
+# Update all values less than 20 to NA
+test_raster <- zion_elevation
+test_raster[test_raster < 20] <- NA
+```
+
+## Spatial Subsetting 
+
+```{r}
+# Find elevation at a few points in Zion
+# Extract values at points
+point <- matrix(c(-113, 37.5), ncol = 2)
+
+terra::extract(zion_elevation, point)
+```
+
+```{r}
+# Clip points
+clip <- rast(xmin = -113.3, xmax = -113, ymin = 37.2, ymax = 37.9,
+             resolution = 0.3,
+             vals = 1)
+
+zion_elevation_clip <- zion_elevation[clip, drop = FALSE]
+```
+
+```{r}
+tm_shape(zion_elevation) +
+  tm_raster()
+
+tm_shape(zion_elevation_clip) +
+  tm_raster()
+```
+
+```{r}
+# Mask version
+# create our mask
+rmask <- zion_elevation
+rmask[rmask < 2000] <- NA
+
+# mask our existing elevation raster
+# bracket subsetting
+masked1 <- zion_elevation[rmask, drop = FALSE]
+
+masked2 <- terra::mask(zion_elevation, rmask)
+```
+
+```{r}
+tm_shape(masked1) +
+  tm_raster()
+```
+
+## Map Algebra
+
+```{r}
+# Turn our elevation set into "low", "medium" and "high" elevation
+rcl <- matrix(c(1000, 1500, 1,
+                1500, 2000, 2,
+                2000, 2500, 3,
+                2500, 3000, 4),
+              ncol = 3, byrow = TRUE)
+
+reclassified <- terra::classify(zion_elevation, rcl = rcl)
+values(reclassified) <- as.factor(values(reclassified))
+
+tm_shape(reclassified) +
+  tm_raster()
+```
+
+### Local
+```{r}
+ndvi_fun <- function(nir, red) {
+  (nir - red)/(nir + red)
+}
+
+ndvi_rast <- lapp(landsat[[c(4,3)]], fun = ndvi_fun)
+
+tm_shape(ndvi_rast) +
+  tm_raster()
+```
+
+### Focal
+```{r}
+# Focal
+elevation_focal <- focal(zion_elevation,
+      w = matrix(1, nrow = 9, ncol = 9),
+      fun = min)
+```
+
+```{r}
+tm_shape(elevation_focal) +
+  tm_raster()
+```
+
+### Zonal
+```{r}
+# Zonal
+terra::zonal(zion_elevation, reclassified, fun = mean)
+```
+### Global
+```{r}
+# Global
+terra::global(zion_elevation, mean)
+```
+
+## Geometry operations
+### Changing the extent
+```{r}
+# Changing the extent
+extend <- terra::extend(zion_elevation, c(1, 200))
+
+extend2 <- terra::extend(zion_elevation, extend)
+
+extend + extend2
+```
+
+### Origin
+```{r}
+# Origin
+origin(zion_elevation)
+```
+
+### Changing resolution
+```{r}
+zion_elevation_coarse <- terra::aggregate(zion_elevation,
+                                          fact = 5,
+                                          fun = mean)
+zion_elevation_disagg <- terra::disagg(zion_elevation_coarse,
+                                       fact = 5,
+                                       method = "bilinear")
+if(identical(zion_elevation, zion_elevation_disagg)) {
+  print("match!")
+} else {
+  warning("don't match")
+}
+```
+
+### Resampling
+```{r}
+target_rast <- rast(xmin = -113.2, xmax = -112.9,
+                    ymin = 37.4, ymax = 37.5,
+                    nrow = 450, ncol = 460,
+                    crs = crs(zion_elevation))
+terra::resample(zion_elevation, y = target_rast, method = "bilinear")
+```
+
+
